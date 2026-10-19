@@ -18,8 +18,9 @@ st.write(
     "Open Hand, Victory / Peace, Fist, and Thumbs Up."
 )
 st.caption(
-    "Tip: clear, evenly lit images help the detector. The app also tries "
-    "contrast and brightness adjustments if the first pass fails."
+    "For best results, keep the hand clearly visible. Detection and gesture "
+    "classification are separate steps: landmarks can be detected even when "
+    "a gesture is uncertain."
 )
 
 MODEL_PATH = "hand_landmarker.task"
@@ -54,39 +55,54 @@ def distance(a, b):
 
 
 def classify_gesture(landmarks):
-    # Each finger: MCP, PIP, DIP, fingertip
+    """
+    Lightweight heuristic classifier for upright or near-upright hands.
+    This is not a trained gesture classifier and can be uncertain for rotated
+    hands, unusual camera angles, or partially occluded fingers.
+    """
+    # Index, middle, ring and little fingers: PIP joint and fingertip.
     finger_data = [
-        (5, 6, 7, 8),       # Index
-        (9, 10, 11, 12),    # Middle
-        (13, 14, 15, 16),   # Ring
-        (17, 18, 19, 20),   # Little
+        (6, 8),    # Index
+        (10, 12), # Middle
+        (14, 16), # Ring
+        (18, 20), # Little
     ]
 
     fingers_up = []
-    for mcp, pip, dip, tip in finger_data:
-        tip_distance = distance(landmarks[tip], landmarks[0])
-        joint_distance = distance(landmarks[pip], landmarks[0])
-        fingers_up.append(tip_distance > joint_distance * 1.12)
+    for pip, tip in finger_data:
+        tip_from_wrist = distance(landmarks[tip], landmarks[0])
+        pip_from_wrist = distance(landmarks[pip], landmarks[0])
+
+        # A less strict ratio reduces false "Unknown" results when fingers
+        # are extended diagonally rather than straight upward.
+        fingers_up.append(tip_from_wrist > pip_from_wrist * 1.05)
 
     index, middle, ring, little = fingers_up
+
+    # Thumb extension: compare the tip's distance from the thumb base with
+    # the IP joint's distance from that same base.
     thumb_extended = (
         distance(landmarks[4], landmarks[2])
-        > distance(landmarks[3], landmarks[2]) * 1.15
+        > distance(landmarks[3], landmarks[2]) * 1.05
     )
 
-    # Check thumbs-up before the general fist case.
+    # Decide the most specific gestures first.
     if (
-        thumb_extended
-        and not any(fingers_up)
+        not any(fingers_up)
         and landmarks[4].y < landmarks[3].y
+        and thumb_extended
     ):
         return "Thumbs Up"
-    if all(fingers_up) and thumb_extended:
+
+    if all(fingers_up):
         return "Open Hand"
+
     if index and middle and not ring and not little:
         return "Victory / Peace"
-    if not any(fingers_up) and not thumb_extended:
+
+    if not any(fingers_up):
         return "Fist"
+
     return "Unknown Gesture"
 
 
@@ -117,7 +133,6 @@ def draw_landmarks(image, landmarks):
 
 
 def detection_variants(image):
-    """Try original and mild exposure/contrast corrections."""
     yield "Original image", image
     yield "Auto contrast", ImageOps.autocontrast(image)
     yield "Slightly brighter", ImageEnhance.Brightness(image).enhance(1.2)
@@ -128,7 +143,6 @@ def detection_variants(image):
 
 
 def detect_hand(detector, image):
-    """Return the first successful detection and the variant used."""
     for variant_name, variant_image in detection_variants(image):
         image_array = np.asarray(variant_image, dtype=np.uint8)
         mp_image = mp.Image(
@@ -157,12 +171,19 @@ if uploaded is not None:
             detected_image, results, variant_name = detect_hand(detector, image)
 
         if results and results.hand_landmarks:
-            # Show the first detected hand.
             landmarks = results.hand_landmarks[0]
             gesture = classify_gesture(landmarks)
             st.success(f"Predicted gesture: {gesture}")
+
+            if gesture == "Unknown Gesture":
+                st.info(
+                    "The hand was detected, but its finger pattern did not "
+                    "match one of the four rule-based labels. Try a more "
+                    "front-facing pose with fingers clearly separated."
+                )
+
             if variant_name != "Original image":
-                st.info(f"Hand detected after trying: {variant_name}")
+                st.caption(f"Detection used: {variant_name}")
 
             annotated = draw_landmarks(detected_image, landmarks)
             st.subheader("Hand Landmark Visualization")
@@ -174,9 +195,9 @@ if uploaded is not None:
 
             with st.expander("Show classification details"):
                 st.write(
-                    "Gesture labels are predicted using geometric rules "
-                    "applied to MediaPipe hand landmarks; this is not a "
-                    "separately trained gesture classifier."
+                    "The four gesture labels use geometric rules applied to "
+                    "MediaPipe landmarks. This is a lightweight heuristic, "
+                    "not a separately trained gesture classifier."
                 )
                 st.write(f"Detection image variant: {variant_name}")
                 st.write(f"Hands detected: {len(results.hand_landmarks)}")
@@ -188,9 +209,8 @@ if uploaded is not None:
                 "background that contrasts with the hand."
             )
             st.info(
-                "This detector can still fail on some images or conditions. "
-                "These adjustments are fallbacks, not a guarantee of equal "
-                "performance across every skin tone."
+                "These adjustments can help with some images, but cannot "
+                "guarantee detection in every condition."
             )
 
     except Exception as error:
