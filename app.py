@@ -1,21 +1,22 @@
 
-import streamlit as st
+import os
+import urllib.request
+
 import mediapipe as mp
 import numpy as np
+import streamlit as st
 from PIL import Image, ImageDraw
-import urllib.request
-import os
 
 st.set_page_config(
     page_title="AI Hand Gesture Recognition",
     page_icon="✋",
-    layout="centered"
+    layout="centered",
 )
 
 st.title("✋ AI Hand Gesture Recognition")
 st.write(
-    "Upload an image of one hand to detect basic gestures. "
-    "Use a clear image with the entire hand visible."
+    "Upload an image of one hand to recognize basic gestures: "
+    "Open Hand, Victory / Peace, Fist, and Thumbs Up."
 )
 
 MODEL_PATH = "hand_landmarker.task"
@@ -31,127 +32,177 @@ def load_hand_detector():
     if not os.path.exists(MODEL_PATH):
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
 
-    BaseOptions = mp.tasks.BaseOptions
-    HandLandmarker = mp.tasks.vision.HandLandmarker
-    HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
-    RunningMode = mp.tasks.vision.RunningMode
-
-    options = HandLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=MODEL_PATH),
-        running_mode=RunningMode.IMAGE,
+    options = mp.tasks.vision.HandLandmarkerOptions(
+        base_options=mp.tasks.BaseOptions(
+            model_asset_path=MODEL_PATH
+        ),
+        running_mode=mp.tasks.vision.RunningMode.IMAGE,
         num_hands=1,
         min_hand_detection_confidence=0.5,
         min_hand_presence_confidence=0.5,
-        min_tracking_confidence=0.5
     )
 
-    return HandLandmarker.create_from_options(options)
+    return mp.tasks.vision.HandLandmarker.create_from_options(
+        options
+    )
+
+
+def distance(a, b):
+    return (
+        (a.x - b.x) ** 2
+        + (a.y - b.y) ** 2
+        + (a.z - b.z) ** 2
+    ) ** 0.5
 
 
 def classify_gesture(landmarks):
-    finger_tips = [8, 12, 16, 20]
-    finger_pips = [6, 10, 14, 18]
-
-    fingers_up = [
-        landmarks[tip].y < landmarks[pip].y
-        for tip, pip in zip(finger_tips, finger_pips)
+    # Each finger: MCP, PIP, DIP, fingertip
+    finger_data = [
+        (5, 6, 7, 8),       # Index
+        (9, 10, 11, 12),    # Middle
+        (13, 14, 15, 16),   # Ring
+        (17, 18, 19, 20),   # Little
     ]
 
-    # Thumb direction depends on which hand and orientation are shown.
+    fingers_up = []
+
+    for mcp, pip, dip, tip in finger_data:
+        # Compare fingertip distance from the wrist with
+        # the middle joint distance. Best for upright hands.
+        tip_distance = distance(landmarks[tip], landmarks[0])
+        joint_distance = distance(landmarks[pip], landmarks[0])
+
+        fingers_up.append(tip_distance > joint_distance * 1.12)
+
+    index, middle, ring, little = fingers_up
+
+    # Thumb extension relative to its base.
     thumb_extended = (
-        abs(landmarks[4].x - landmarks[2].x) >
-        abs(landmarks[3].x - landmarks[2].x)
+        distance(landmarks[4], landmarks[2])
+        > distance(landmarks[3], landmarks[2]) * 1.15
     )
 
-    count = sum(fingers_up)
-
-    if count == 4 and thumb_extended:
+    if all(fingers_up) and thumb_extended:
         return "Open Hand"
-    if count == 2 and fingers_up[0] and fingers_up[1]:
+
+    if index and middle and not ring and not little:
         return "Victory / Peace"
-    if count == 0 and not thumb_extended:
+
+    if not any(fingers_up) and not thumb_extended:
         return "Fist"
-    if thumb_extended and count == 0:
+
+    # Thumb pointing upward in an upright image.
+    if (
+        thumb_extended
+        and not any(fingers_up)
+        and landmarks[4].y < landmarks[3].y
+    ):
         return "Thumbs Up"
 
     return "Unknown Gesture"
 
 
+def draw_landmarks(image, landmarks):
+    annotated = image.copy()
+    draw = ImageDraw.Draw(annotated)
+    width, height = image.size
+
+    points = [
+        (int(point.x * width), int(point.y * height))
+        for point in landmarks
+    ]
+
+    connections = (
+        mp.tasks.vision.HandLandmarksConnections.HAND_CONNECTIONS
+    )
+
+    for connection in connections:
+        start = connection.start
+        end = connection.end
+
+        draw.line(
+            [points[start], points[end]],
+            fill="lime",
+            width=max(2, width // 250),
+        )
+
+    radius = max(3, width // 150)
+
+    for x, y in points:
+        draw.ellipse(
+            (
+                x - radius,
+                y - radius,
+                x + radius,
+                y + radius,
+            ),
+            fill="red",
+        )
+
+    return annotated
+
+
 uploaded = st.file_uploader(
-    "Upload a hand image",
-    type=["jpg", "jpeg", "png"]
+    "Choose a hand image",
+    type=["jpg", "jpeg", "png"],
 )
 
-if uploaded:
+if uploaded is not None:
     try:
         image = Image.open(uploaded).convert("RGB")
+
+        st.subheader("Uploaded Image")
         st.image(
             image,
-            caption="Uploaded image",
-            use_container_width=True
+            caption="Original image",
+            width="stretch",
         )
 
         image_array = np.asarray(image, dtype=np.uint8)
+
         mp_image = mp.Image(
             image_format=mp.ImageFormat.SRGB,
-            data=image_array
+            data=image_array,
         )
 
-        with st.spinner("Detecting your hand..."):
+        with st.spinner("Detecting hand and landmarks..."):
             detector = load_hand_detector()
             results = detector.detect(mp_image)
 
         if results.hand_landmarks:
-            hand = results.hand_landmarks[0]
-            gesture = classify_gesture(hand)
+            landmarks = results.hand_landmarks[0]
+            gesture = classify_gesture(landmarks)
 
-            st.success(f"Detected gesture: {gesture}")
+            st.success(f"Predicted gesture: {gesture}")
 
-            annotated = image.copy()
-            draw = ImageDraw.Draw(annotated)
-            width, height = image.size
+            annotated = draw_landmarks(image, landmarks)
 
-            connections = (
-                mp.tasks.vision.HandLandmarksConnections.HAND_CONNECTIONS
-            )
-
-            points = [
-                (int(point.x * width), int(point.y * height))
-                for point in hand
-            ]
-
-            for connection in connections:
-                start = connection.start
-                end = connection.end
-                draw.line(
-                    [points[start], points[end]],
-                    fill="lime",
-                    width=4
-                )
-
-            for x, y in points:
-                draw.ellipse(
-                    (x - 4, y - 4, x + 4, y + 4),
-                    fill="red"
-                )
-
+            st.subheader("Hand Landmark Visualization")
             st.image(
                 annotated,
                 caption="Detected hand landmarks",
-                use_container_width=True
+                width="stretch",
             )
 
-            st.caption(
-                "Gesture classification uses rules applied to MediaPipe "
-                "hand landmarks; it is not a separately trained classifier."
-            )
+            with st.expander("Show classification details"):
+                st.write(
+                    "Gesture recognition uses geometric rules "
+                    "applied to MediaPipe hand landmarks. "
+                    "It is not a separately trained classifier."
+                )
 
         else:
             st.warning(
-                "No hand detected. Try a clear, well-lit image with "
-                "your entire hand visible."
+                "No hand detected. Try a well-lit image with "
+                "one complete hand clearly visible."
             )
 
     except Exception as error:
-        st.error("The image could not be processed.")
-        st.caption(f"Technical details: {error}")
+        st.error("Unable to process this image.")
+        st.code(f"{type(error).__name__}: {error}")
+
+        st.info(
+            "If the error mentions downloading the model, "
+            "check whether the hosting environment can access "
+            "the MediaPipe model URL."
+        )
