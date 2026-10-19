@@ -11,15 +11,29 @@ A real-time computer-vision project that uses a webcam to recognize four basic h
 
 ## Technologies
 
-- Python
-- OpenCV for webcam capture and live display
-- MediaPipe Hands for hand landmark detection and tracking
+- **Python** — application logic
+- **OpenCV** — webcam capture, image processing, and display
+- **MediaPipe Hands** — pretrained hand-landmark detection and tracking
 
-This version uses a pretrained hand-landmark model and rule-based gesture classification. The gesture classifier itself is not a separately trained machine-learning model.
+This project uses a pretrained hand-landmark model and rule-based gesture classification. The gesture classifier itself is not a separately trained machine-learning model.
 
-## Project status
+## Screenshots
 
-The application has been run with a webcam, and screenshots have been captured for all four gestures. The code and demo video should be added to this repository by the author before final submission.
+### Open Hand
+![Open Hand detection](screenshots/Screenshot%202026-10-19%20132102.png)
+
+### Victory / Peace
+![Victory / Peace detection](screenshots/Screenshot%202026-10-19%20132129.png)
+
+### Thumbs Up
+![Thumbs Up detection](screenshots/Screenshot%202026-10-19%20132204.png)
+
+### Fist
+![Fist detection](screenshots/Screenshot%202026-10-19%20132216.png)
+
+## Demo Video
+
+[Watch or download the project demo](demo/GESTUREDEMO.mp4).
 
 ## Requirements
 
@@ -43,7 +57,7 @@ Press **Q** to exit the webcam window.
 2. Frames are mirrored and converted to RGB.
 3. MediaPipe detects hand landmarks.
 4. Python logic estimates the gesture from landmark positions.
-5. OpenCV overlays the predicted gesture and the hand skeleton on the frame.
+5. OpenCV overlays the predicted gesture and hand skeleton on the frame.
 
 ## Repository structure
 
@@ -53,28 +67,26 @@ Press **Q** to exit the webcam window.
 ├── requirements.txt
 ├── README.md
 ├── screenshots/
-│   ├── open-hand.png
-│   ├── victory-peace.png
-│   ├── thumbs-up.png
-│   └── fist.png
+│   ├── Screenshot 2026-10-19 132102.png
+│   ├── Screenshot 2026-10-19 132129.png
+│   ├── Screenshot 2026-10-19 132204.png
+│   └── Screenshot 2026-10-19 132216.png
 └── demo/
-    └── gesture-demo.mp4
+    └── GESTUREDEMO.mp4
 ```
-
-Add the actual script, screenshots, and recorded demo to the paths shown above before treating this structure as complete.
 
 ## Limitations
 
-- Classification relies on geometric rules and can be sensitive to orientation, lighting, camera angle, and partial visibility.
+- Classification relies on geometric rules and can be sensitive to orientation, lighting, camera angle, or partial visibility.
 - No formal accuracy benchmark has been performed.
 - A working webcam is required.
 
-## Future improvements
+## Future Improvements
 
 - Improve classification across different hand orientations.
 - Add prediction smoothing to reduce label flicker.
 - Support multiple hands.
-- Extend the system for gesture-based mouse movement and scrolling.
+- Extend the system into a gesture-based computer-control application.
 
 ## Author
 
